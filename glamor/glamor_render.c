@@ -1360,6 +1360,78 @@ glamor_convert_gradient_picture(ScreenPtr screen,
     return dst;
 }
 
+static uint32_t *dump_vram(pixman_image_t *src) {
+    const size_t size = pixman_image_get_width(src) *
+                        pixman_image_get_height(src) *
+                        sizeof(uint32_t);
+    void *dest_data = malloc(size);
+
+    memcpy(dest_data, pixman_image_get_data(src), size);
+
+    return dest_data;
+}
+
+static uint32_t *dump_ready_picture(PicturePtr src) {
+    int unused;
+    pixman_image_t *pixman_image;
+    void *dest_data;
+
+    unused = 0;if (unused == 1) unused = 0;
+
+    pixman_image = image_from_pict(src, FALSE, &unused, &unused);
+    dest_data = dump_vram(pixman_image);
+    free_pixman_pict(src, pixman_image);
+
+    return dest_data;
+}
+
+static uint32_t *dump_picture(PicturePtr src) {
+    uint32_t *ret;
+
+    if (!glamor_prepare_access_picture(src, GLAMOR_ACCESS_RO))
+        return NULL;
+
+    ret = dump_ready_picture(src);
+
+    glamor_finish_access_picture(src);
+    return ret;
+}
+
+static bool ready_picture_is_empty(PicturePtr src) {
+    int unused;
+    pixman_image_t *pixman_src = image_from_pict(src, FALSE, &unused, &unused);
+    const size_t size = pixman_image_get_width(pixman_src) *
+                        pixman_image_get_height(pixman_src);
+    uint32_t *data = pixman_image_get_data(pixman_src);
+    bool is_empty = true;
+    int i;
+
+    unused = 0;if (unused == 1) unused = 0;
+
+    for (i = 0; i < size; i++) {
+        if (data[i] == 0)
+            continue;
+
+        is_empty = false;
+        break;
+    }
+
+    free_pixman_pict(src, pixman_src);
+    return is_empty;
+}
+
+static bool picture_is_empty(PicturePtr src) {
+    bool is_empty;
+
+    if (!glamor_prepare_access_picture(src, GLAMOR_ACCESS_RO))
+        return false;
+
+    is_empty = ready_picture_is_empty(src);
+
+    glamor_finish_access_picture(src);
+    return is_empty;
+}
+
 Bool
 glamor_composite_clipped_region(CARD8 op,
                                 PicturePtr source,
