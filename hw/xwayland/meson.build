@@ -40,6 +40,7 @@ srcs += code.process(kbgrab_xml)
 xwayland_glamor = []
 if gbm_dep.found()
     srcs += 'xwayland-glamor.c'
+    srcs += 'xwayland-glamor-gbm.c'
     if build_xv
         srcs += 'xwayland-glamor-xv.c'
     endif
