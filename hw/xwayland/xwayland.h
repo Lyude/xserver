@@ -46,6 +46,8 @@
 #include "pointer-constraints-unstable-v1-client-protocol.h"
 #include "tablet-unstable-v2-client-protocol.h"
 
+struct xwl_pixmap;
+
 struct xwl_screen {
     int width;
     int height;
@@ -90,14 +92,28 @@ struct xwl_screen {
     int prepare_read;
     int wait_flush;
 
-    char *device_name;
-    int drm_fd;
-    int fd_render_node;
-    struct wl_drm *drm;
     uint32_t formats;
-    uint32_t capabilities;
+    void *egl_device;
     void *egl_display, *egl_context;
-    struct gbm_device *gbm;
+
+    struct {
+        Bool initialized;
+        void *priv;
+
+        void  (*init_wl_registry)(struct xwl_screen *xwl_screen,
+                                  struct wl_registry *wl_registry,
+                                  const char *name, uint32_t id,
+                                  uint32_t version);
+        Bool  (*init_egl)(struct xwl_screen *xwl_screen);
+        Bool  (*init_screen)(struct xwl_screen *xwl_screen);
+
+        /* FIXME: maybe just pass xwl_window instead of windowptr, we don't
+         * really need the X window structure
+         */
+        struct wl_buffer *(*get_wl_buffer_for_pixmap)(PixmapPtr pixmap,
+                                                      WindowPtr window);
+    } egl_backend;
+
     struct glamor_context *glamor_ctx;
 
     Atom allow_commits_prop;
@@ -264,8 +280,6 @@ struct xwl_output {
     Rotation rotation;
 };
 
-struct xwl_pixmap;
-
 void xwl_sync_events (struct xwl_screen *xwl_screen);
 
 Bool xwl_screen_init_cursor(struct xwl_screen *xwl_screen);
@@ -317,9 +331,8 @@ struct wl_buffer *xwl_shm_pixmap_get_wl_buffer(PixmapPtr pixmap);
 
 Bool xwl_glamor_init(struct xwl_screen *xwl_screen);
 
-Bool xwl_screen_init_glamor(struct xwl_screen *xwl_screen,
-                         uint32_t id, uint32_t version);
-struct wl_buffer *xwl_glamor_pixmap_get_wl_buffer(PixmapPtr pixmap);
+struct wl_buffer *xwl_glamor_pixmap_get_wl_buffer(PixmapPtr pixmap,
+                                                  WindowPtr window);
 
 void xwl_screen_release_tablet_manager(struct xwl_screen *xwl_screen);
 
@@ -330,6 +343,11 @@ Bool xwl_glamor_xv_init(ScreenPtr pScreen);
 
 #ifdef XF86VIDMODE
 void xwlVidModeExtensionInit(void);
+#endif
+
+#ifdef GLAMOR_HAS_GBM
+Bool xwl_glamor_can_gbm(struct xwl_screen *xwl_screen);
+Bool xwl_glamor_init_gbm(struct xwl_screen *xwl_screen);
 #endif
 
 #endif

@@ -24,6 +24,7 @@
  */
 
 #include "xwayland.h"
+#include "xwayland-glamor.h"
 
 #include <stdio.h>
 
@@ -615,7 +616,7 @@ xwl_window_post_damage(struct xwl_window *xwl_window)
 
 #ifdef GLAMOR_HAS_GBM
     if (xwl_screen->glamor)
-        buffer = xwl_glamor_pixmap_get_wl_buffer(pixmap);
+        buffer = xwl_glamor_pixmap_get_wl_buffer(pixmap, xwl_window->window);
     else
 #endif
         buffer = xwl_shm_pixmap_get_wl_buffer(pixmap);
@@ -674,13 +675,10 @@ registry_global(void *data, struct wl_registry *registry, uint32_t id,
     else if (strcmp(interface, "wl_output") == 0 && version >= 2) {
         if (xwl_output_create(xwl_screen, id))
             xwl_screen->expecting_event++;
+    } else if (xwl_screen->glamor) {
+        xwl_screen->egl_backend.init_wl_registry(xwl_screen, registry,
+                                                 interface, id, version);
     }
-#ifdef GLAMOR_HAS_GBM
-    else if (xwl_screen->glamor &&
-             strcmp(interface, "wl_drm") == 0 && version >= 2) {
-        xwl_screen_init_glamor(xwl_screen, id, version);
-    }
-#endif
 }
 
 static void
@@ -859,10 +857,14 @@ xwl_screen_init(ScreenPtr pScreen, int argc, char **argv)
     dixSetPrivate(&pScreen->devPrivates, &xwl_screen_private_key, xwl_screen);
     xwl_screen->screen = pScreen;
 
+/* TODO: set this to GLAMOR_HAS_GBM || GLAMOR_HAS_EGLSTREAMS */
 #ifdef GLAMOR_HAS_GBM
     xwl_screen->glamor = 1;
 #endif
 
+    /* TODO: Add some code to allow manually setting egl_device via cmdline
+     * args
+     */
     for (i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-rootless") == 0) {
             xwl_screen->rootless = 1;
@@ -883,6 +885,15 @@ xwl_screen_init(ScreenPtr pScreen, int argc, char **argv)
             i++;
         }
         else if (strcmp(argv[i], "-shm") == 0) {
+            xwl_screen->glamor = 0;
+        }
+    }
+
+    if (xwl_screen->glamor) {
+        if (xwl_glamor_can_gbm(xwl_screen)) {
+            xwl_glamor_init_gbm(xwl_screen);
+        } else {
+            ErrorF("glamor: no EGL devices found, falling back to sw accel\n");
             xwl_screen->glamor = 0;
         }
     }
