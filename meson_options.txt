@@ -4,6 +4,8 @@ option('xephyr', type: 'boolean', value: false,
        description: 'Enable Xephyr nested X server')
 option('xwayland', type: 'combo', choices: ['yes', 'no', 'auto'], value: 'auto',
        description: 'Enable XWayland X server')
+option('xwayland_eglstream', type: 'combo', choices: ['yes', 'no', 'auto'],
+       value: 'auto', description: 'Enable EGLStream support for glamor on Xwayland')
 option('glamor', type: 'combo', choices: ['yes', 'no', 'auto'], value: 'auto',
        description: 'Enable glamor (default yes for Xorg/Xwayland builds)')
 option('xnest', type: 'combo', choices: ['yes', 'no', 'auto'], value: 'auto',

@@ -40,6 +40,10 @@ Xwayland_SOURCES += 				\
 	xwayland-glamor-xv.c
 endif
 
+# FIXME: Make this conditional
+Xwayland_SOURCES +=				\
+	xwayland-glamor-eglstream.c
+
 glamor_built_sources =				\
 	drm-client-protocol.h			\
 	drm-protocol.c
@@ -58,13 +62,16 @@ Xwayland_built_sources +=					\
 	pointer-constraints-unstable-v1-client-protocol.h	\
 	pointer-constraints-unstable-v1-protocol.c		\
 	tablet-unstable-v2-client-protocol.h			\
-	tablet-unstable-v2-protocol.c
+	tablet-unstable-v2-protocol.c				\
+	eglstream-client-protocol.h				\
+	eglstream-protocol.c					\
+	eglstream-controller-client-protocol.h			\
+	eglstream-controller-protocol.c
 
 nodist_Xwayland_SOURCES = $(Xwayland_built_sources)
 CLEANFILES = $(Xwayland_built_sources)
 
 EXTRA_DIST = drm.xml
-
 
 $(Xwayland_SOURCES): $(Xwayland_built_sources)
 
@@ -84,6 +91,11 @@ pointer-constraints-unstable-v1-client-protocol.h : $(WAYLAND_PROTOCOLS_DATADIR)
 tablet-unstable-v2-protocol.c: $(WAYLAND_PROTOCOLS_DATADIR)/unstable/tablet/tablet-unstable-v2.xml
 	$(AM_V_GEN)$(WAYLAND_SCANNER) code < $< > $@
 tablet-unstable-v2-client-protocol.h: $(WAYLAND_PROTOCOLS_DATADIR)/unstable/tablet/tablet-unstable-v2.xml
+	$(AM_V_GEN)$(WAYLAND_SCANNER) client-header < $< > $@
+
+eglstream-%-protocol.c : $(WAYLAND_EGLSTREAM_DATADIR)/wayland-eglstream-%.xml
+	$(AM_V_GEN)$(WAYLAND_SCANNER) code < $< > $@
+eglstream-%-client-protocol.h : $(WAYLAND_EGLSTREAM_DATADIR)/wayland-eglstream-%.xml
 	$(AM_V_GEN)$(WAYLAND_SCANNER) client-header < $< > $@
 
 %-protocol.c : %.xml

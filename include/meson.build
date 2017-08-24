@@ -79,6 +79,7 @@ conf_data.set('GLAMOR_HAS_GBM', gbm_dep.found())
 if gbm_dep.found() and dependency('gbm', version: '>= 10.6', required: false).found()
     conf_data.set('GLAMOR_HAS_GBM_LINEAR', build_glamor)
 endif
+conf_data.set('GLAMOR_HAS_EGLSTREAM', build_eglstream)
 
 conf_data.set_quoted('SERVER_MISC_CONFIG_PATH', serverconfigdir)
 conf_data.set_quoted('PROJECTROOT', get_option('prefix'))

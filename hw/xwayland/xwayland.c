@@ -106,7 +106,7 @@ static DevPrivateKeyRec xwl_window_private_key;
 static DevPrivateKeyRec xwl_screen_private_key;
 static DevPrivateKeyRec xwl_pixmap_private_key;
 
-static struct xwl_window *
+struct xwl_window *
 xwl_window_get(WindowPtr window)
 {
     return dixLookupPrivate(&window->devPrivates, &xwl_window_private_key);
@@ -617,6 +617,9 @@ xwl_window_post_damage(struct xwl_window *xwl_window)
 
     wl_surface_attach(xwl_window->surface, buffer, 0, 0);
 
+    if (xwl_screen->glamor)
+        xwl_glamor_post_damage(xwl_window, pixmap, region);
+
     box = RegionExtents(region);
     wl_surface_damage(xwl_window->surface, box->x1, box->y1,
                         box->x2 - box->x1, box->y2 - box->y1);
@@ -643,6 +646,9 @@ xwl_screen_post_damage(struct xwl_screen *xwl_screen)
             continue;
 
         if (!xwl_window->allow_commits)
+            continue;
+
+        if (!xwl_glamor_allow_commits(xwl_window))
             continue;
 
         xwl_window_post_damage(xwl_window);
@@ -884,11 +890,23 @@ xwl_screen_init(ScreenPtr pScreen, int argc, char **argv)
     }
 
     if (xwl_screen->glamor) {
-        if (xwl_glamor_can_gbm(xwl_screen)) {
-            xwl_glamor_init_gbm(xwl_screen);
-        } else {
-            ErrorF("glamor: no EGL devices found, falling back to sw accel\n");
-            xwl_screen->glamor = 0;
+        if (xwl_glamor_egl_supports_device_probing()) {
+            if (!xwl_glamor_init_eglstream(xwl_screen) &&
+                !xwl_glamor_init_gbm(xwl_screen)) {
+                ErrorF("No compatible EGLDevices found, disabling glamor\n");
+                xwl_screen->glamor = 0;
+            }
+        }
+        else {
+            ErrorF("No EGLDevice probing available\n");
+            /* If we can't probe for EGL devices (the EGL library is probably
+             * too old to support it), revert to the old method of defaulting
+             * to glamor since that doesn't require device probing
+             */
+            if (!xwl_glamor_init_gbm(xwl_screen)) {
+                ErrorF("Failed to setup GBM, disabling glamor\n");
+                xwl_screen->glamor = 0;
+            }
         }
     }
 

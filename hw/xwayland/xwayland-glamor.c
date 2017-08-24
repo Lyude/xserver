@@ -155,6 +155,7 @@ xwl_glamor_egl_device_has_egl_extensions(void *device,
     return has_exts;
 }
 
+
 void
 glamor_egl_screen_init(ScreenPtr screen, struct glamor_context *glamor_ctx)
 {
@@ -195,6 +196,27 @@ xwl_glamor_init_wl_registry(struct xwl_screen *xwl_screen,
         xwl_screen->egl_backend.init_wl_registry(xwl_screen, registry,
                                                  interface, id, version);
 #endif
+}
+
+void
+xwl_glamor_post_damage(struct xwl_window *xwl_window,
+                       PixmapPtr pixmap, RegionPtr region)
+{
+    struct xwl_screen *xwl_screen = xwl_window->xwl_screen;
+
+    if (xwl_screen->egl_backend.post_damage)
+        xwl_screen->egl_backend.post_damage(xwl_window, pixmap, region);
+}
+
+Bool
+xwl_glamor_allow_commits(struct xwl_window *xwl_window)
+{
+    struct xwl_screen *xwl_screen = xwl_window->xwl_screen;
+
+    if (xwl_screen->egl_backend.allow_commits)
+        return xwl_screen->egl_backend.allow_commits(xwl_window);
+    else
+        return TRUE;
 }
 
 static Bool
