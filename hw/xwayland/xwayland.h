@@ -128,6 +128,21 @@ struct xwl_screen {
          * pixmap they've prepared beforehand.
          */
         struct wl_buffer *(*get_wl_buffer_for_pixmap)(PixmapPtr pixmap);
+
+        /* Called by Xwayland to perform any pre-wl_surface damage routines
+         * that are required by the backend. If your backend is poorly
+         * designed and lacks the ability to render directly to a surface,
+         * you should implement blitting from the glamor pixmap to the wayland
+         * pixmap here. Otherwise, this callback is optional.
+         */
+        void (*post_damage)(struct xwl_window *xwl_window,
+                            PixmapPtr pixmap, RegionPtr region);
+
+        /* Called by Xwayland to confirm with the egl backend that the given
+         * pixmap is completely setup and ready for display on-screen. This
+         * callback is optional.
+         */
+        Bool (*allow_commits)(struct xwl_window *xwl_window);
     } egl_backend;
 
     struct glamor_context *glamor_ctx;
@@ -354,9 +369,13 @@ void xwl_glamor_init_wl_registry(struct xwl_screen *xwl_screen,
                                  struct wl_registry *registry,
                                  uint32_t id, const char *interface,
                                  uint32_t version);
+void xwl_glamor_post_damage(struct xwl_window *xwl_window,
+                            PixmapPtr pixmap, RegionPtr region);
+Bool xwl_glamor_allow_commits(struct xwl_window *xwl_window);
 
 void xwl_screen_release_tablet_manager(struct xwl_screen *xwl_screen);
 
+void xwl_glamor_egl_make_current(struct xwl_screen *xwl_screen);
 Bool xwl_glamor_egl_supports_device_probing(void);
 void **xwl_glamor_egl_get_devices(int *num_devices);
 Bool xwl_glamor_egl_device_has_egl_extensions(void *device,
@@ -374,6 +393,20 @@ void xwlVidModeExtensionInit(void);
 
 #ifdef GLAMOR_HAS_GBM
 Bool xwl_glamor_init_gbm(struct xwl_screen *xwl_screen);
+#else
+static inline Bool xwl_glamor_init_gbm(struct xwl_screen *xwl_screen)
+{
+    return FALSE;
+}
+#endif
+
+#ifdef XWL_HAS_EGLSTREAM
+Bool xwl_glamor_init_eglstream(struct xwl_screen *xwl_screen);
+#else
+static inline Bool xwl_glamor_init_eglstream(struct xwl_screen *xwl_screen)
+{
+    return FALSE;
+}
 #endif
 
 #endif

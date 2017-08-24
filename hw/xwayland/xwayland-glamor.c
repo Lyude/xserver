@@ -37,7 +37,7 @@
 #include <glamor_context.h>
 
 static void
-xwl_glamor_egl_make_current(struct glamor_context *glamor_ctx)
+glamor_egl_make_current(struct glamor_context *glamor_ctx)
 {
     eglMakeCurrent(glamor_ctx->display, EGL_NO_SURFACE,
                    EGL_NO_SURFACE, EGL_NO_CONTEXT);
@@ -45,6 +45,16 @@ xwl_glamor_egl_make_current(struct glamor_context *glamor_ctx)
                         EGL_NO_SURFACE, EGL_NO_SURFACE,
                         glamor_ctx->ctx))
         FatalError("Failed to make EGL context current\n");
+}
+
+void
+xwl_glamor_egl_make_current(struct xwl_screen *xwl_screen)
+{
+    if (lastGLContext == xwl_screen->glamor_ctx)
+        return;
+
+    lastGLContext = xwl_screen->glamor_ctx;
+    xwl_screen->glamor_ctx->make_current(xwl_screen->glamor_ctx);
 }
 
 Bool
@@ -123,6 +133,7 @@ xwl_glamor_egl_device_has_egl_extensions(void *device,
     return has_exts;
 }
 
+
 void
 glamor_egl_screen_init(ScreenPtr screen, struct glamor_context *glamor_ctx)
 {
@@ -131,7 +142,7 @@ glamor_egl_screen_init(ScreenPtr screen, struct glamor_context *glamor_ctx)
     glamor_ctx->ctx = xwl_screen->egl_context;
     glamor_ctx->display = xwl_screen->egl_display;
 
-    glamor_ctx->make_current = xwl_glamor_egl_make_current;
+    glamor_ctx->make_current = glamor_egl_make_current;
 
     xwl_screen->glamor_ctx = glamor_ctx;
 }
@@ -153,6 +164,27 @@ xwl_glamor_init_wl_registry(struct xwl_screen *xwl_screen,
     if (xwl_screen->egl_backend.init_wl_registry)
         xwl_screen->egl_backend.init_wl_registry(xwl_screen, registry,
                                                  interface, id, version);
+}
+
+void
+xwl_glamor_post_damage(struct xwl_window *xwl_window,
+                       PixmapPtr pixmap, RegionPtr region)
+{
+    struct xwl_screen *xwl_screen = xwl_window->xwl_screen;
+
+    if (xwl_screen->egl_backend.post_damage)
+        xwl_screen->egl_backend.post_damage(xwl_window, pixmap, region);
+}
+
+Bool
+xwl_glamor_allow_commits(struct xwl_window *xwl_window)
+{
+    struct xwl_screen *xwl_screen = xwl_window->xwl_screen;
+
+    if (xwl_screen->egl_backend.allow_commits)
+        return xwl_screen->egl_backend.allow_commits(xwl_window);
+    else
+        return TRUE;
 }
 
 static Bool

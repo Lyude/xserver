@@ -40,6 +40,10 @@ Xwayland_SOURCES += 				\
 	xwayland-glamor-xv.c
 endif
 
+# FIXME: Make this conditional
+Xwayland_SOURCES +=				\
+	xwayland-glamor-eglstream.c
+
 glamor_built_sources =				\
 	drm-client-protocol.h			\
 	drm-protocol.c
@@ -60,13 +64,16 @@ Xwayland_built_sources +=					\
 	tablet-unstable-v2-client-protocol.h			\
 	tablet-unstable-v2-protocol.c				\
 	xwayland-keyboard-grab-unstable-v1-protocol.c		\
-	xwayland-keyboard-grab-unstable-v1-client-protocol.h
+	xwayland-keyboard-grab-unstable-v1-client-protocol.h	\
+	wayland-eglstream-client-protocol.h			\
+	wayland-eglstream-protocol.c				\
+	wayland-eglstream-controller-client-protocol.h		\
+	wayland-eglstream-controller-protocol.c
 
 nodist_Xwayland_SOURCES = $(Xwayland_built_sources)
 CLEANFILES = $(Xwayland_built_sources)
 
 EXTRA_DIST = drm.xml
-
 
 $(Xwayland_SOURCES): $(Xwayland_built_sources)
 
@@ -92,6 +99,16 @@ xwayland-keyboard-grab-unstable-v1-protocol.c : $(WAYLAND_PROTOCOLS_DATADIR)/uns
 	$(AM_V_GEN)$(WAYLAND_SCANNER) code < $< > $@
 xwayland-keyboard-grab-unstable-v1-client-protocol.h : $(WAYLAND_PROTOCOLS_DATADIR)/unstable/xwayland-keyboard-grab/xwayland-keyboard-grab-unstable-v1.xml
 	$(AM_V_GEN)$(WAYLAND_SCANNER) client-header < $< > $@
+
+wayland-eglstream-client-protocol.h : $(WAYLAND_EGLSTREAM_DATADIR)/wayland-eglstream.xml
+	$(AM_V_GEN)$(WAYLAND_SCANNER) client-header < $< > $@
+wayland-eglstream-controller-client-protocol.h : $(WAYLAND_EGLSTREAM_DATADIR)/wayland-eglstream-controller.xml
+	$(AM_V_GEN)$(WAYLAND_SCANNER) client-header < $< > $@
+
+wayland-eglstream-protocol.c : $(WAYLAND_EGLSTREAM_DATADIR)/wayland-eglstream.xml
+	$(AM_V_GEN)$(WAYLAND_SCANNER) code < $< > $@
+wayland-eglstream-controller-protocol.c : $(WAYLAND_EGLSTREAM_DATADIR)/wayland-eglstream-controller.xml
+	$(AM_V_GEN)$(WAYLAND_SCANNER) code < $< > $@
 
 %-protocol.c : %.xml
 	$(AM_V_GEN)$(WAYLAND_SCANNER) code < $< > $@

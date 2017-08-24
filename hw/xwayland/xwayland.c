@@ -624,6 +624,11 @@ xwl_window_post_damage(struct xwl_window *xwl_window)
 #endif
         buffer = xwl_shm_pixmap_get_wl_buffer(pixmap);
 
+#ifdef XWL_HAS_GLAMOR
+    if (xwl_screen->glamor)
+        xwl_glamor_post_damage(xwl_window, pixmap, region);
+#endif
+
     wl_surface_attach(xwl_window->surface, buffer, 0, 0);
 
     box = RegionExtents(region);
@@ -653,6 +658,11 @@ xwl_screen_post_damage(struct xwl_screen *xwl_screen)
 
         if (!xwl_window->allow_commits)
             continue;
+
+#ifdef XWL_HAS_GLAMOR
+        if (!xwl_glamor_allow_commits(xwl_window))
+            continue;
+#endif
 
         xwl_window_post_damage(xwl_window);
     }
@@ -896,9 +906,19 @@ xwl_screen_init(ScreenPtr pScreen, int argc, char **argv)
 
 #ifdef XWL_HAS_GLAMOR
     if (xwl_screen->glamor) {
-        if (!xwl_glamor_init_gbm(xwl_screen)) {
-            ErrorF("xwayland glamor: failed to setup GBM backend, falling back to sw accel\n");
-            xwl_screen->glamor = 0;
+        if (xwl_glamor_egl_supports_device_probing()) {
+            if (!xwl_glamor_init_eglstream(xwl_screen) &&
+                !xwl_glamor_init_gbm(xwl_screen)) {
+                ErrorF("xwayland: failed to setup an EGL backend, falling back to sw accel\n");
+                xwl_screen->glamor = 0;
+            }
+        }
+        else {
+            ErrorF("No EGLDevice probing available\n");
+            if (!xwl_glamor_init_gbm(xwl_screen)) {
+                ErrorF("Failed to setup GBM, disabling glamor\n");
+                xwl_screen->glamor = 0;
+            }
         }
     }
 #endif
