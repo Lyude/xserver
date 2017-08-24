@@ -139,6 +139,7 @@ struct xwl_touch {
     struct xorg_list link_touch;
 };
 
+
 struct xwl_pointer_warp_emulator {
     struct xwl_seat *xwl_seat;
     struct xwl_window *locked_window;
@@ -321,6 +322,7 @@ RRModePtr xwayland_cvt(int HDisplay, int VDisplay,
 void xwl_pixmap_set_private(PixmapPtr pixmap, struct xwl_pixmap *xwl_pixmap);
 struct xwl_pixmap *xwl_pixmap_get(PixmapPtr pixmap);
 
+struct xwl_window *xwl_window_get(WindowPtr window);
 
 Bool xwl_shm_create_screen_resources(ScreenPtr screen);
 PixmapPtr xwl_shm_create_pixmap(ScreenPtr screen, int width, int height,

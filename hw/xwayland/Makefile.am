@@ -40,6 +40,10 @@ Xwayland_SOURCES += 				\
 	xwayland-glamor-xv.c
 endif
 
+# FIXME: Make this conditional
+Xwayland_SOURCES +=				\
+	xwayland-glamor-eglstream.c
+
 glamor_built_sources =				\
 	drm-client-protocol.h			\
 	drm-protocol.c
@@ -58,12 +62,19 @@ Xwayland_built_sources +=					\
 	pointer-constraints-unstable-v1-client-protocol.h	\
 	pointer-constraints-unstable-v1-protocol.c		\
 	tablet-unstable-v2-client-protocol.h			\
-	tablet-unstable-v2-protocol.c
+	tablet-unstable-v2-protocol.c				\
+	eglstream-client-protocol.h				\
+	eglstream-protocol.c					\
+	eglstream-controller-client-protocol.h			\
+	eglstream-controller-protocol.c
 
 nodist_Xwayland_SOURCES = $(Xwayland_built_sources)
 CLEANFILES = $(Xwayland_built_sources)
 
-EXTRA_DIST = drm.xml
+EXTRA_DIST = 				\
+	drm.xml 			\
+	eglstream.xml 			\
+	eglstream-controller.xml
 
 
 $(Xwayland_SOURCES): $(Xwayland_built_sources)

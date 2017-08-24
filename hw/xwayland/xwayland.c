@@ -106,7 +106,7 @@ static DevPrivateKeyRec xwl_window_private_key;
 static DevPrivateKeyRec xwl_screen_private_key;
 static DevPrivateKeyRec xwl_pixmap_private_key;
 
-static struct xwl_window *
+struct xwl_window *
 xwl_window_get(WindowPtr window)
 {
     return dixLookupPrivate(&window->devPrivates, &xwl_window_private_key);
