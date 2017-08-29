@@ -97,7 +97,6 @@ struct xwl_screen {
     void *egl_display, *egl_context;
 
     struct {
-        Bool initialized;
         void *priv;
 
         void  (*init_wl_registry)(struct xwl_screen *xwl_screen,
@@ -337,6 +336,8 @@ struct wl_buffer *xwl_glamor_pixmap_get_wl_buffer(PixmapPtr pixmap,
                                                   WindowPtr window);
 
 void xwl_screen_release_tablet_manager(struct xwl_screen *xwl_screen);
+
+Bool xwl_glamor_egl_supports_device_probing(void);
 
 #ifdef XV
 /* glamor Xv Adaptor */

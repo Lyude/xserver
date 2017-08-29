@@ -79,6 +79,13 @@ xwl_glamor_egl_make_current(struct glamor_context *glamor_ctx)
         FatalError("Failed to make EGL context current\n");
 }
 
+Bool
+xwl_glamor_egl_supports_device_probing(void)
+{
+    return epoxy_has_egl() &&
+        epoxy_has_egl_extension(NULL, "EGL_EXT_device_base");
+}
+
 void **
 xwl_glamor_egl_get_devices(int *num_devices)
 {
@@ -219,13 +226,7 @@ xwl_glamor_init(struct xwl_screen *xwl_screen)
 {
     ScreenPtr screen = xwl_screen->screen;
 
-    if (!xwl_screen->egl_backend.initialized) {
-        ErrorF("No available EGL backends found, disabling glamor\n");
-        return FALSE;
-    }
-
-    if (xwl_screen->egl_display == EGL_NO_DISPLAY &&
-        !xwl_screen->egl_backend.init_egl(xwl_screen)) {
+    if (!xwl_screen->egl_backend.init_egl(xwl_screen)) {
         ErrorF("EGL setup failed, disabling glamor\n");
         return FALSE;
     }

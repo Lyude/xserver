@@ -241,7 +241,6 @@ xwl_glamor_gbm_cleanup(struct xwl_screen *xwl_screen)
     if (xwl_gbm->gbm)
         gbm_device_destroy(xwl_gbm->gbm);
 
-    xwl_screen->egl_backend.initialized = FALSE;
     already_failed = TRUE;
     free(xwl_gbm);
 }
@@ -596,26 +595,33 @@ error:
     return FALSE;
 }
 
-Bool
-xwl_glamor_can_gbm(struct xwl_screen *xwl_screen)
+/* TODO: Actually probe for something that tells us this device can use gbm */
+static Bool
+xwl_glamor_gbm_get_device(struct xwl_screen *xwl_screen)
 {
     void **devices;
     int num_devices;
 
-    /* FIXME: We need to actually check that the device supports GBM and not
-     * assume as such, right now this function only works because we call it
-     * before trying to probe for devices that support eglstreams
+    /* Make sure we're the default backend on systems without EGLDevice
+     * probing
      */
-    if (!xwl_screen->egl_device) {
-        devices = xwl_glamor_egl_get_devices(&num_devices);
-        if (!devices) {
-            ErrorF("glamor: No GBM capable devices found, disabling GBM\n");
-            return FALSE;
-        }
+    if (!xwl_glamor_egl_supports_device_probing())
+        return TRUE;
 
-        xwl_screen->egl_device = devices[0];
-        free(devices);
+    /* The user specified a device */
+    if (xwl_screen->egl_device) {
+        return TRUE;
     }
+
+    /* No device provided, probe for one */
+    devices = xwl_glamor_egl_get_devices(&num_devices);
+    if (!devices) {
+        ErrorF("glamor: No GBM capable devices found, disabling GBM\n");
+        return FALSE;
+    }
+
+    xwl_screen->egl_device = devices[0];
+    free(devices);
 
     return TRUE;
 }
@@ -624,6 +630,9 @@ Bool
 xwl_glamor_init_gbm(struct xwl_screen *xwl_screen)
 {
     struct xwl_gbm_private *xwl_gbm;
+
+    if (!xwl_glamor_gbm_get_device(xwl_screen))
+        return FALSE;
 
     xwl_gbm = calloc(sizeof(*xwl_gbm), 1);
     if (!xwl_gbm) {
