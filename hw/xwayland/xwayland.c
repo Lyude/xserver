@@ -615,13 +615,18 @@ xwl_window_post_damage(struct xwl_window *xwl_window)
     pixmap = (*xwl_screen->screen->GetWindowPixmap) (xwl_window->window);
 
 #ifdef GLAMOR_HAS_GBM
-    if (xwl_screen->glamor)
-        buffer = xwl_glamor_pixmap_get_wl_buffer(pixmap, xwl_window->window);
-    else
+    if (xwl_screen->glamor) {
+        buffer = xwl_screen->egl_backend.get_wl_buffer_for_pixmap(
+            pixmap, xwl_window->window);
+    } else
 #endif
         buffer = xwl_shm_pixmap_get_wl_buffer(pixmap);
 
     wl_surface_attach(xwl_window->surface, buffer, 0, 0);
+
+    if (xwl_screen->glamor)
+        xwl_screen->egl_backend.post_damage(xwl_screen, xwl_window, pixmap,
+                                            region);
 
     box = RegionExtents(region);
     wl_surface_damage(xwl_window->surface, box->x1, box->y1,
@@ -890,11 +895,23 @@ xwl_screen_init(ScreenPtr pScreen, int argc, char **argv)
     }
 
     if (xwl_screen->glamor) {
-        if (xwl_glamor_can_gbm(xwl_screen)) {
-            xwl_glamor_init_gbm(xwl_screen);
-        } else {
-            ErrorF("glamor: no EGL devices found, falling back to sw accel\n");
-            xwl_screen->glamor = 0;
+        if (xwl_glamor_egl_supports_device_probing()) {
+            if (!xwl_glamor_init_eglstream(xwl_screen) &&
+                !xwl_glamor_init_gbm(xwl_screen)) {
+                ErrorF("No compatible EGLDevices found, disabling glamor\n");
+                xwl_screen->glamor = 0;
+            }
+        }
+        else {
+            ErrorF("No EGLDevice probing available\n");
+            /* If we can't probe for EGL devices (the EGL library is probably
+             * too old to support it), revert to the old method of defaulting
+             * to glamor since that doesn't require device probing
+             */
+            if (!xwl_glamor_init_gbm(xwl_screen)) {
+                ErrorF("Failed to setup GBM, disabling glamor\n");
+                xwl_screen->glamor = 0;
+            }
         }
     }
 

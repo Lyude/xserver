@@ -168,21 +168,6 @@ glamor_egl_screen_init(ScreenPtr screen, struct glamor_context *glamor_ctx)
     xwl_screen->glamor_ctx = glamor_ctx;
 }
 
-struct wl_buffer *
-xwl_glamor_pixmap_get_wl_buffer(PixmapPtr pixmap, WindowPtr window)
-{
-    struct xwl_screen *xwl_screen = xwl_screen_get(pixmap->drawable.pScreen);
-    struct xwl_pixmap *xwl_pixmap = xwl_pixmap_get(pixmap);
-
-    if (xwl_pixmap->buffer)
-        return xwl_pixmap->buffer;
-
-    xwl_pixmap->buffer = xwl_screen->egl_backend.get_wl_buffer_for_pixmap(
-        pixmap, window);
-
-    return xwl_pixmap->buffer;
-}
-
 static Bool
 xwl_glamor_create_screen_resources(ScreenPtr screen)
 {

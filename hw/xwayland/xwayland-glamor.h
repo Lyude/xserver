@@ -32,25 +32,10 @@
 
 #include "xwayland.h"
 
-struct xwl_pixmap {
-    struct wl_buffer *buffer;
-    void *image;
-    unsigned int texture;
-    void *backing;
-};
-
 void xwl_glamor_egl_make_current(struct glamor_context *glamor_ctx);
 void **xwl_glamor_egl_get_devices(int *num_devices);
 Bool xwl_glamor_egl_device_has_egl_extensions(void *device,
                                               const char **ext_list,
                                               size_t size);
-
-/* FIXME: add ifdefs */
-Bool xwl_glamor_eglstream_bind_display(struct xwl_screen *xwl_screen,
-                                       struct wl_registry *registry,
-                                       uint32_t id, uint32_t version);
-Bool xwl_glamor_eglstream_bind_controller(struct xwl_screen *xwl_screen,
-                                          struct wl_registry *registry,
-                                          uint32_t id, uint32_t version);
 
 #endif /* XWAYLAND_GLAMOR_H */

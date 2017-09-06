@@ -47,6 +47,7 @@
 #include "tablet-unstable-v2-client-protocol.h"
 
 struct xwl_pixmap;
+struct xwl_window;
 
 struct xwl_screen {
     int width;
@@ -106,11 +107,11 @@ struct xwl_screen {
         Bool  (*init_egl)(struct xwl_screen *xwl_screen);
         Bool  (*init_screen)(struct xwl_screen *xwl_screen);
 
-        /* FIXME: maybe just pass xwl_window instead of windowptr, we don't
-         * really need the X window structure
-         */
         struct wl_buffer *(*get_wl_buffer_for_pixmap)(PixmapPtr pixmap,
                                                       WindowPtr window);
+        void  (*post_damage)(struct xwl_screen *xwl_screen,
+                             struct xwl_window *xwl_window,
+                             PixmapPtr pixmap, RegionPtr region);
     } egl_backend;
 
     struct glamor_context *glamor_ctx;
@@ -332,9 +333,6 @@ struct wl_buffer *xwl_shm_pixmap_get_wl_buffer(PixmapPtr pixmap);
 
 Bool xwl_glamor_init(struct xwl_screen *xwl_screen);
 
-struct wl_buffer *xwl_glamor_pixmap_get_wl_buffer(PixmapPtr pixmap,
-                                                  WindowPtr window);
-
 void xwl_screen_release_tablet_manager(struct xwl_screen *xwl_screen);
 
 Bool xwl_glamor_egl_supports_device_probing(void);
@@ -349,8 +347,10 @@ void xwlVidModeExtensionInit(void);
 #endif
 
 #ifdef GLAMOR_HAS_GBM
-Bool xwl_glamor_can_gbm(struct xwl_screen *xwl_screen);
 Bool xwl_glamor_init_gbm(struct xwl_screen *xwl_screen);
 #endif
+
+/* FIXME: add ifdef here */
+Bool xwl_glamor_init_eglstream(struct xwl_screen *xwl_screen);
 
 #endif

@@ -54,8 +54,14 @@ struct xwl_gbm_private {
     uint32_t capabilities;
 };
 
+struct xwl_pixmap {
+    struct wl_buffer *buffer;
+    EGLImage image;
+    unsigned int texture;
+    struct gbm_bo *bo;
+};
+
 static DevPrivateKeyRec xwl_auth_state_private_key;
-static Bool already_failed;
 
 static inline struct xwl_gbm_private *
 xwl_gbm_get(struct xwl_screen *xwl_screen)
@@ -137,12 +143,12 @@ xwl_glamor_gbm_create_pixmap_for_bo(ScreenPtr screen, struct gbm_bo *bo,
         xwl_glamor_egl_make_current(xwl_screen->glamor_ctx);
     }
 
-    xwl_pixmap->backing = bo;
+    xwl_pixmap->bo = bo;
     xwl_pixmap->buffer = NULL;
     xwl_pixmap->image = eglCreateImageKHR(xwl_screen->egl_display,
                                           xwl_screen->egl_context,
                                           EGL_NATIVE_PIXMAP_KHR,
-                                          xwl_pixmap->backing, NULL);
+                                          xwl_pixmap->bo, NULL);
 
     glGenTextures(1, &xwl_pixmap->texture);
     glBindTexture(GL_TEXTURE_2D, xwl_pixmap->texture);
@@ -195,7 +201,7 @@ xwl_glamor_gbm_destroy_pixmap(PixmapPtr pixmap)
             wl_buffer_destroy(xwl_pixmap->buffer);
 
         eglDestroyImageKHR(xwl_screen->egl_display, xwl_pixmap->image);
-        gbm_bo_destroy(xwl_pixmap->backing);
+        gbm_bo_destroy(xwl_pixmap->bo);
         free(xwl_pixmap);
     }
 
@@ -212,7 +218,10 @@ xwl_glamor_gbm_get_wl_buffer_for_pixmap(PixmapPtr pixmap,
     struct wl_buffer *buffer;
     int prime_fd;
 
-    prime_fd = gbm_bo_get_fd(xwl_pixmap->backing);
+    if (xwl_pixmap->buffer)
+        return xwl_pixmap->buffer;
+
+    prime_fd = gbm_bo_get_fd(xwl_pixmap->bo);
     if (prime_fd == -1)
         return NULL;
 
@@ -220,11 +229,19 @@ xwl_glamor_gbm_get_wl_buffer_for_pixmap(PixmapPtr pixmap,
         xwl_gbm->drm, prime_fd,
         pixmap->drawable.width, pixmap->drawable.height,
         drm_format_for_depth(pixmap->drawable.depth),
-        0, gbm_bo_get_stride(xwl_pixmap->backing), 0, 0, 0, 0);
+        0, gbm_bo_get_stride(xwl_pixmap->bo), 0, 0, 0, 0);
 
     close(prime_fd);
 
     return buffer;
+}
+
+static void
+xwl_glamor_gbm_post_damage(struct xwl_screen *xwl_screen,
+                           struct xwl_window *xwl_window,
+                           PixmapPtr pixmap, RegionPtr region)
+{
+    /* Unlike certain other backends, GBM doesn't need to do any copying :) */
 }
 
 static void
@@ -241,7 +258,6 @@ xwl_glamor_gbm_cleanup(struct xwl_screen *xwl_screen)
     if (xwl_gbm->gbm)
         gbm_device_destroy(xwl_gbm->gbm);
 
-    already_failed = TRUE;
     free(xwl_gbm);
 }
 
@@ -385,10 +401,10 @@ xwl_dri3_fd_from_pixmap(ScreenPtr screen, PixmapPtr pixmap,
 
     xwl_pixmap = xwl_pixmap_get(pixmap);
 
-    *stride = gbm_bo_get_stride(xwl_pixmap->backing);
+    *stride = gbm_bo_get_stride(xwl_pixmap->bo);
     *size = pixmap->drawable.width * *stride;
 
-    return gbm_bo_get_fd(xwl_pixmap->backing);
+    return gbm_bo_get_fd(xwl_pixmap->bo);
 }
 
 static dri3_screen_info_rec xwl_dri3_info = {
@@ -645,6 +661,7 @@ xwl_glamor_init_gbm(struct xwl_screen *xwl_screen)
     xwl_screen->egl_backend.init_egl = xwl_glamor_gbm_init_egl;
     xwl_screen->egl_backend.init_screen = xwl_glamor_gbm_init_screen;
     xwl_screen->egl_backend.get_wl_buffer_for_pixmap = xwl_glamor_gbm_get_wl_buffer_for_pixmap;
+    xwl_screen->egl_backend.post_damage = xwl_glamor_gbm_post_damage;
 
     ErrorF("glamor: Using GBM backend, just like the cool kids\n");
 
