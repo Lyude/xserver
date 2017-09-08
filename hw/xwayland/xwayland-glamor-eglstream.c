@@ -107,6 +107,15 @@ lyude_enable_debug(void)
     }
 }
 
+static GLint
+lyude_gl_get_int(GLint attribute)
+{
+    int ret;
+
+    glGetIntegerv(attribute, &ret);
+    return ret;
+}
+
 /***************************************************************************/
 /* XXX: Real code starts here */
 /***************************************************************************/
@@ -117,7 +126,8 @@ struct xwl_eglstream_private {
     uint32_t display_caps;
 
     EGLConfig config;
-    EGLContext gles_ctx;
+
+    Bool have_egl_damage;
 
     GLint blit_prog;
 
@@ -132,7 +142,6 @@ struct xwl_eglstream_private {
 struct xwl_pixmap {
     struct wl_buffer *buffer;
 
-    EGLImage image;
     GLuint texture;
     EGLStreamKHR stream;
     EGLSurface surface;
@@ -145,24 +154,6 @@ static inline struct xwl_eglstream_private *
 xwl_eglstream_get(struct xwl_screen *xwl_screen)
 {
     return xwl_screen->egl_backend.priv;
-}
-
-static inline Bool
-xwl_glamor_eglstream_make_current(struct xwl_screen *xwl_screen,
-                                  EGLSurface surface)
-{
-    struct xwl_eglstream_private *xwl_eglstream =
-        xwl_eglstream_get(xwl_screen);
-    Bool ret;
-
-    eglMakeCurrent(xwl_screen->egl_display, EGL_NO_SURFACE,
-                   EGL_NO_SURFACE, EGL_NO_CONTEXT);
-    ret = eglMakeCurrent(xwl_screen->egl_display, surface, surface,
-                         xwl_eglstream->gles_ctx);
-    if (!ret)
-        FatalError("Failed to make EGLStream blitter EGL context current\n");
-
-    return ret;
 }
 
 static GLenum gl_iformat_from_config(EGLDisplay egl_display, EGLConfig config)
@@ -249,12 +240,8 @@ xwl_glamor_eglstream_cleanup(struct xwl_screen *xwl_screen)
         wl_eglstream_display_destroy(xwl_eglstream->display);
     if (xwl_eglstream->controller)
         wl_eglstream_controller_destroy(xwl_eglstream->controller);
-    if (xwl_eglstream->gles_ctx) {
-        if (xwl_eglstream->blit_prog)
-            glDeleteProgram(xwl_eglstream->blit_prog);
-
-        eglDestroyContext(xwl_screen->egl_display, xwl_eglstream->gles_ctx);
-    }
+    if (xwl_eglstream->blit_prog)
+        glDeleteProgram(xwl_eglstream->blit_prog);
 
     free(xwl_eglstream);
     xwl_screen->egl_backend.priv = NULL;
@@ -265,12 +252,8 @@ xwl_glamor_eglstream_create_pixmap_egl(ScreenPtr screen,
                                        int width, int height, int depth,
                                        unsigned int hint)
 {
-    struct xwl_screen *xwl_screen = xwl_screen_get(screen);
-    struct xwl_eglstream_private *xwl_eglstream =
-        xwl_eglstream_get(xwl_screen);
     PixmapPtr pixmap = NULL;
     struct xwl_pixmap *xwl_pixmap;
-    GLuint backing_texture;
 
     xwl_pixmap = calloc(sizeof(*xwl_pixmap), 1);
     if (!xwl_pixmap)
@@ -280,36 +263,8 @@ xwl_glamor_eglstream_create_pixmap_egl(ScreenPtr screen,
     if (!pixmap)
         goto error;
 
-    if (lastGLContext != xwl_screen->glamor_ctx) {
-        lastGLContext = xwl_screen->glamor_ctx;
-        xwl_glamor_egl_make_current(xwl_screen->glamor_ctx);
-    }
-
-    /* Make the pixmap's texture's format immutable */
-    backing_texture = glamor_get_pixmap_texture(pixmap);
-    glBindTexture(GL_TEXTURE_2D, backing_texture);
-    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8UI,
-                   pixmap->drawable.width, pixmap->drawable.height);
-    glBindTexture(GL_TEXTURE_2D, 0);
-
-    /* We can't swap anything onto an EGLSurface of a different color format,
-     * so use a texture view to give us the format we really want
-     */
-    glGenTextures(1, &xwl_pixmap->texture);
-    glTextureView(xwl_pixmap->texture, GL_TEXTURE_2D, backing_texture,
-                  gl_iformat_from_config(xwl_screen->egl_display,
-                                         xwl_eglstream->config),
-                  0, 1, 0, 1);
-
-    xwl_pixmap->image = eglCreateImageKHR(
-        xwl_screen->egl_display, xwl_screen->egl_context,
-        EGL_GL_TEXTURE_2D_KHR, (void*)(long)xwl_pixmap->texture,
-        (int[]) { EGL_NONE });
-    if (xwl_pixmap->image == EGL_NO_IMAGE_KHR)
-        goto error;
-
+    xwl_pixmap->texture = glamor_get_pixmap_texture(pixmap);
     xwl_pixmap_set_private(pixmap, xwl_pixmap);
-    glamor_set_pixmap_texture(pixmap, xwl_pixmap->texture);
 
     return pixmap;
 error:
@@ -351,8 +306,7 @@ xwl_glamor_eglstream_destroy_pixmap(PixmapPtr pixmap)
             eglDestroySurface(xwl_screen->egl_display, xwl_pixmap->surface);
         }
 
-        eglDestroyImageKHR(xwl_screen->egl_display, xwl_pixmap->image);
-        glDeleteTextures(1, &xwl_pixmap->texture);
+        /*glDeleteTextures(1, &xwl_pixmap->texture);*/
         free(xwl_pixmap);
     }
 
@@ -375,7 +329,10 @@ xwl_glamor_eglstream_get_wl_buffer_for_pixmap(PixmapPtr pixmap,
     if (xwl_pixmap->buffer)
         return xwl_pixmap->buffer;
 
-    xwl_glamor_eglstream_make_current(xwl_screen, EGL_NO_SURFACE);
+    if (lastGLContext != xwl_screen->glamor_ctx) {
+        lastGLContext = xwl_screen->glamor_ctx;
+        xwl_glamor_egl_make_current(xwl_screen->glamor_ctx);
+    }
 
     xwl_pixmap->stream = eglCreateStreamKHR(xwl_screen->egl_display, NULL);
     if (xwl_pixmap->stream == EGL_NO_STREAM_KHR) {
@@ -417,8 +374,6 @@ xwl_glamor_eglstream_get_wl_buffer_for_pixmap(PixmapPtr pixmap,
         goto error;
     }
 
-    xwl_glamor_egl_make_current(xwl_screen->glamor_ctx);
-
     xwl_pixmap->buffer = buffer;
     return buffer;
 
@@ -434,8 +389,6 @@ error:
         xwl_pixmap->surface = EGL_NO_SURFACE;
     }
 
-    xwl_glamor_egl_make_current(xwl_screen->glamor_ctx);
-
     return NULL;
 }
 
@@ -444,30 +397,49 @@ xwl_glamor_eglstream_post_damage(struct xwl_screen *xwl_screen,
                                  struct xwl_window *xwl_window,
                                  PixmapPtr pixmap, RegionPtr region)
 {
-    struct xwl_pixmap *xwl_pixmap = xwl_pixmap_get(pixmap);
     struct xwl_eglstream_private *xwl_eglstream =
         xwl_eglstream_get(xwl_screen);
-    /*GLint saved_vao;*/
-    /*BoxPtr box = RegionExtents(region);*/
+    struct xwl_pixmap *xwl_pixmap = xwl_pixmap_get(pixmap);
+    BoxPtr box = RegionExtents(region);
+    EGLint egl_damage[] = {
+        box->x1,           box->y1,
+        box->x2 - box->x1, box->y2 - box->y1
+    };
+    GLint saved_vao;
 
-    xwl_glamor_eglstream_make_current(xwl_screen, xwl_pixmap->surface);
+    eglMakeCurrent(eglGetCurrentDisplay(),
+                   xwl_pixmap->surface,
+                   xwl_pixmap->surface,
+                   eglGetCurrentContext());
 
-    /* Blit rendered image into EGLStream surface */
     glUseProgram(xwl_eglstream->blit_prog);
-    glBindVertexArray(xwl_eglstream->blit_vao);
     glViewport(0, 0, pixmap->drawable.width, pixmap->drawable.height);
 
-    glEGLImageTargetTexture2DOES(GL_TEXTURE_EXTERNAL_OES, xwl_pixmap->image);
+    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &saved_vao);
+    glBindVertexArray(xwl_eglstream->blit_vao);
+
+    /* Blit rendered image into EGLStream surface */
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, xwl_pixmap->texture);
+
+    /*glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,*/
+                           /*GL_TEXTURE_2D, xwl_pixmap->texture, 0);*/
+
     glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 
-    /* FIXME try getting literally -ANYTHING- on the display */
-    /*glClearColor(0.0, 1.0, 0.0, 1.0);*/
-    /*glClear(GL_COLOR_BUFFER_BIT);*/
-
     /* Flush */
-    eglSwapBuffers(xwl_screen->egl_display, xwl_pixmap->surface);
+    if (xwl_eglstream->have_egl_damage)
+        eglSwapBuffersWithDamageKHR(xwl_screen->egl_display,
+                                    xwl_pixmap->surface, egl_damage, 1);
+    else
+        eglSwapBuffers(xwl_screen->egl_display, xwl_pixmap->surface);
 
-    xwl_glamor_egl_make_current(xwl_screen->glamor_ctx);
+    /*[> Restore GL context <]*/
+    eglMakeCurrent(eglGetCurrentDisplay(), EGL_NO_SURFACE, EGL_NO_SURFACE,
+                   eglGetCurrentContext());
+
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glBindVertexArray(saved_vao);
 }
 
 static void
@@ -519,8 +491,7 @@ xwl_glamor_eglstream_find_best_config(struct xwl_screen *xwl_screen)
 {
     const EGLint config_requirements[] = {
         EGL_SURFACE_TYPE, EGL_STREAM_BIT_KHR,
-        EGL_RENDERABLE_TYPE,
-        EGL_OPENGL_ES_BIT | EGL_OPENGL_ES2_BIT | EGL_OPENGL_BIT,
+        EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT,
         EGL_RED_SIZE, 5,
         EGL_GREEN_SIZE, 6,
         EGL_BLUE_SIZE, 5,
@@ -579,24 +550,12 @@ xwl_glamor_eglstream_find_best_config(struct xwl_screen *xwl_screen)
     eglGetConfigAttrib(xwl_screen->egl_display, best_config,
                        EGL_ALPHA_SIZE, &alpha_size);
 
-    /* FIXME: Is this broken? If so why? Do we need to start using
-     * TextureViews?
-     */
     xwl_screen->formats = XWL_FORMAT_RGB565;
     if (red_size == 8 && green_size == 8 && blue_size == 8) {
         if (alpha_size == 8)
             xwl_screen->formats |= XWL_FORMAT_ARGB8888;
 
         xwl_screen->formats |= XWL_FORMAT_XRGB8888;
-    }
-
-    /* TODO remove this */
-    {
-        int attrib;
-
-        eglGetConfigAttrib(xwl_screen->egl_display, best_config,
-                           EGL_CONFIG_ID, &attrib);
-        ErrorF("Using config 0x%x\n", attrib);
     }
 
     return best_config;
@@ -619,18 +578,13 @@ xwl_glamor_eglstream_init_shaders(struct xwl_screen *xwl_screen)
         "}";
 
     const char *blit_fs_src =
-        "#extension GL_OES_EGL_image_external : enable\n"
         GLAMOR_DEFAULT_PRECISION
-        "precision mediump samplerExternalOES;\n"
         "varying vec2 t;\n"
-        "uniform samplerExternalOES s;\n"
+        "uniform sampler2D s;\n"
         "void main() {\n"
         "   gl_FragColor = texture2D(s, t);\n"
         "}\n";
 
-    /* TODO: don't use set position, only draw the portions of the pixmap that
-     * got damaged
-     */
     static const float position[] = {
         /* position */
         -1, -1,
@@ -669,12 +623,14 @@ xwl_glamor_eglstream_init_shaders(struct xwl_screen *xwl_screen)
 
     /* Define each shader attribute's data location in our vbo */
     glVertexAttribPointer(xwl_eglstream->blit_position_loc,
-                          2, GL_FLOAT, FALSE, 0, NULL);
+                          2, GL_FLOAT, TRUE, 0, NULL);
     glVertexAttribPointer(xwl_eglstream->blit_texcoord_loc,
-                          2, GL_FLOAT, FALSE, 0, (void*)(sizeof(float) * 8));
+                          2, GL_FLOAT, TRUE, 0, (void*)(sizeof(float) * 8));
 
     glEnableVertexAttribArray(xwl_eglstream->blit_position_loc);
     glEnableVertexAttribArray(xwl_eglstream->blit_texcoord_loc);
+
+    glUseProgram(xwl_eglstream->blit_prog);
 
     return TRUE;
 }
@@ -688,16 +644,17 @@ xwl_glamor_eglstream_init_egl(struct xwl_screen *xwl_screen)
     EGLint config_attribs[] = {
         EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR,
         EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT_KHR,
-        EGL_CONTEXT_MAJOR_VERSION_KHR,
-        GLAMOR_GL_CORE_VER_MAJOR,
-        EGL_CONTEXT_MINOR_VERSION_KHR,
-        GLAMOR_GL_CORE_VER_MINOR,
+
+        /* Use 4.2 so we can get texture views */
+        EGL_CONTEXT_MAJOR_VERSION_KHR, 4,
+        EGL_CONTEXT_MINOR_VERSION_KHR, 2,
         EGL_NONE
     };
-    EGLint gles_config_attribs[] = {
-        EGL_CONTEXT_CLIENT_VERSION, 2,
-        EGL_NONE,
+    const char *required_gl_exts[] = {
+        "GL_ARB_texture_view",
+        "GL_ARB_texture_storage",
     };
+    int i;
 
     xwl_screen->egl_display = glamor_egl_get_display(EGL_PLATFORM_DEVICE_EXT,
                                                      xwl_screen->egl_device);
@@ -733,36 +690,29 @@ xwl_glamor_eglstream_init_egl(struct xwl_screen *xwl_screen)
     }
     lyude_enable_debug(); /* FIXME */
 
-    eglBindAPI(EGL_OPENGL_ES_API);
-    xwl_eglstream->gles_ctx = eglCreateContext(
-        xwl_screen->egl_display, config, EGL_NO_CONTEXT, gles_config_attribs);
-    if (xwl_eglstream->gles_ctx == EGL_NO_CONTEXT) {
-        ErrorF("Failed to create EGLStream private EGL context: 0x%x\n",
-               eglGetError());
+    for (i = 0; i < ARRAY_SIZE(required_gl_exts); i++) {
+        if (!epoxy_has_gl_extension(required_gl_exts[i])) {
+            ErrorF("OpenGL ES driver doesn't support %s\n",
+                   required_gl_exts[i]);
+            goto error;
+        }
     }
 
-    if (!xwl_glamor_eglstream_make_current(xwl_screen, EGL_NO_SURFACE))
-        goto error;
+    xwl_eglstream->have_egl_damage =
+        epoxy_has_egl_extension(xwl_screen->egl_display,
+                                "EGL_KHR_swap_buffers_with_damage");
+    if (!xwl_eglstream->have_egl_damage)
+        ErrorF("Driver lacks EGL_KHR_swap_buffers_with_damage, performance "
+               "will be affected\n");
 
-    lyude_enable_debug(); /* FIXME */
-
-#define require_ext(name) \
-    if (!epoxy_has_gl_extension(name)) { \
-        ErrorF("Context doesn't support " #name "\n"); \
-        goto error; \
-    }
-
-    require_ext("GL_OES_EGL_image_external");
-    require_ext("GL_EXT_texture_view");
-#undef require_ext
+    /* FIXME */
+    /* apitrace doesn't currently support eglSwapBuffersWithDamage, disable it
+     * for now
+     */
+    xwl_eglstream->have_egl_damage = FALSE;
 
     if (!xwl_glamor_eglstream_init_shaders(xwl_screen))
         goto error;
-
-    eglMakeCurrent(xwl_screen->egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE,
-                   EGL_NO_CONTEXT);
-    eglMakeCurrent(xwl_screen->egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE,
-                   xwl_screen->egl_context);
 
     return TRUE;
 error:
