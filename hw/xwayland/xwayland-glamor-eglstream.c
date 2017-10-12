@@ -114,8 +114,12 @@ lyude_gl_get_int(GLint attribute)
 struct xwl_eglstream_pending_stream {
     PixmapPtr pixmap;
     WindowPtr window;
+
+    struct xwl_pixmap *xwl_pixmap;
     struct wl_callback *cb;
+
     Bool pixmap_was_changed;
+
     struct xorg_list link;
 };
 
@@ -150,7 +154,6 @@ struct xwl_pixmap {
      * xwl_eglstream_queue_pending_buffer()
      */
     int refcount;
-    Bool buffer_pending;
 
     EGLStreamKHR stream;
     int stream_fd;
@@ -303,10 +306,10 @@ xwl_eglstream_unref_pixmap_stream(struct xwl_pixmap *xwl_pixmap)
     if (xwl_pixmap->surface)
         eglDestroySurface(xwl_screen->egl_display, xwl_pixmap->surface);
 
-    wl_buffer_destroy(xwl_pixmap->buffer);
     close(xwl_pixmap->stream_fd);
     eglDestroyStreamKHR(xwl_screen->egl_display, xwl_pixmap->stream);
 
+    wl_buffer_destroy(xwl_pixmap->buffer);
     free(xwl_pixmap);
 }
 
@@ -335,11 +338,6 @@ xwl_eglstream_set_window_pixmap(WindowPtr window, PixmapPtr pixmap)
         xwl_eglstream_get(xwl_screen);
     struct xwl_eglstream_pending_stream *pending;
 
-    xwl_screen->screen->SetWindowPixmap = xwl_eglstream->SetWindowPixmap;
-    (*xwl_screen->screen->SetWindowPixmap)(window, pixmap);
-    xwl_eglstream->SetWindowPixmap = xwl_screen->screen->SetWindowPixmap;
-    xwl_screen->screen->SetWindowPixmap = xwl_eglstream_set_window_pixmap;
-
     pending = xwl_eglstream_window_get_pending(window);
     if (pending) {
         /* The pixmap for this window has changed before it's respective
@@ -349,7 +347,18 @@ xwl_eglstream_set_window_pixmap(WindowPtr window, PixmapPtr pixmap)
          * window's surface without error.
          */
         pending->pixmap_was_changed = TRUE;
+
+        /* Additionally, the stream is currently considered owned by the
+         * window's surface, so wait for the surface to release the buffer
+         * before destroying it
+         */
+        pending->xwl_pixmap->refcount++;
     }
+
+    xwl_screen->screen->SetWindowPixmap = xwl_eglstream->SetWindowPixmap;
+    (*xwl_screen->screen->SetWindowPixmap)(window, pixmap);
+    xwl_eglstream->SetWindowPixmap = xwl_screen->screen->SetWindowPixmap;
+    xwl_screen->screen->SetWindowPixmap = xwl_eglstream_set_window_pixmap;
 }
 
 /* Because we run asynchronously with our wayland compositor, it's possible
@@ -460,11 +469,13 @@ xwl_eglstream_queue_pending_stream(struct xwl_screen *xwl_screen,
         DebugF("eglstream: win %d begins new eglstream for pixmap %d\n",
                window->drawable.id, pixmap->drawable.id);
     } else {
+
         DebugF("eglstream: win %d interrupts and replaces pending eglstream for pixmap %d\n",
                window->drawable.id, pixmap->drawable.id);
     }
 
     pending_stream->pixmap = pixmap;
+    pending_stream->xwl_pixmap = xwl_pixmap_get(pixmap);
     pending_stream->pixmap_was_changed = FALSE;
     pending_stream->cb = wl_display_sync(xwl_screen->display);
     wl_callback_add_listener(pending_stream->cb, &consumer_ready_listener,
@@ -472,63 +483,15 @@ xwl_eglstream_queue_pending_stream(struct xwl_screen *xwl_screen,
     wl_display_flush(xwl_screen->display);
 }
 
-static const struct wl_buffer_listener xwl_eglstream_pending_buffer_listener;
-
 static void
-xwl_eglstream_pending_buffer_release_callback(void *data,
-                                              struct wl_buffer *wl_buffer)
+xwl_eglstream_buffer_release_callback(void *data, struct wl_buffer *wl_buffer)
 {
-    struct xwl_pixmap *xwl_pixmap = data;
-
-    /* We don't care about anything beyond the very first release event */
-    if (!xwl_pixmap->buffer_pending)
-        return;
-
-    xwl_pixmap->buffer_pending = FALSE;
-    xwl_eglstream_unref_pixmap_stream(xwl_pixmap);
+    xwl_eglstream_unref_pixmap_stream(data);
 }
 
-static const struct wl_buffer_listener xwl_eglstream_pending_buffer_listener = {
-    xwl_eglstream_pending_buffer_release_callback
+static const struct wl_buffer_listener xwl_eglstream_buffer_release_listener = {
+    xwl_eglstream_buffer_release_callback
 };
-
-/* (read the comment for xwl_eglstream_consumer_ready_callback() first)
- *
- * There's still one situation left that can catch us off guard:
- *
- * - Window resizes, changes pixmap to pixmap A
- * - Damage gets queued, pixmap A sets up a pending stream for itself
- * - Window resizes, changes pixmap to pixmap B
- * - Pixmap A's internal refcount drops to 0, destroying it and it's
- *   associated wl_buffer and other stream resources. A wl_buffer_destroy()
- *   event is created for the buffer.
- * - Pixmap B sets up a pending stream for itself
- * - Begin handling wayland compositor events
- * - No-op for pixmap A's stream callback
- * - Compositor receives receives wl_buffer_destroy() event and destroys
- *   buffer.
- * - Compositor goes to release previously mentioned wl_buffer because some
- *   asynchronous eglstream setup from the GL library was still running, but
- *   the buffer isn't there anymore.
- * - Compositor gets spooked, or segfaults, or causes us to receive egl
- *   errors, etc.
- *
- * This situation is avoided by allowing an X pixmap's eglstream resources to
- * outlive it's associated pixmap, so that they remain valid until the point
- * at which the compositor has finished setting up the eglstream and releases
- * the buffer. Once this release happens, we can finally safely destroy the
- * stream resources without upsetting the compositor.
- */
-static void
-xwl_eglstream_queue_pending_buffer(struct xwl_screen *xwl_screen,
-                                   struct xwl_pixmap *xwl_pixmap)
-{
-    xwl_pixmap->refcount++;
-    xwl_pixmap->buffer_pending = TRUE;
-    wl_buffer_add_listener(xwl_pixmap->buffer,
-                           &xwl_eglstream_pending_buffer_listener,
-                           xwl_pixmap);
-}
 
 static void
 xwl_eglstream_create_pending_stream(struct xwl_screen *xwl_screen,
@@ -565,8 +528,11 @@ xwl_eglstream_create_pending_stream(struct xwl_screen *xwl_screen,
     wl_eglstream_controller_attach_eglstream_consumer(
         xwl_eglstream->controller, xwl_window->surface, xwl_pixmap->buffer);
 
+    wl_buffer_add_listener(xwl_pixmap->buffer,
+                           &xwl_eglstream_buffer_release_listener,
+                           xwl_pixmap);
+
     xwl_eglstream_queue_pending_stream(xwl_screen, window, pixmap);
-    xwl_eglstream_queue_pending_buffer(xwl_screen, xwl_pixmap);
 
     xwl_eglstream_restore_current(xwl_screen);
 }
@@ -588,8 +554,14 @@ xwl_glamor_eglstream_allow_commits(struct xwl_window *xwl_window)
              */
             if (!pending->pixmap_was_changed)
                 return FALSE;
-        } else
+        } else {
+            /* EGLStream is setup and ready for commits, make sure we keep the
+             * stream resources alive until after the next wl_surface_commit()
+             */
+            xwl_pixmap->refcount++;
+
             return TRUE;
+        }
     }
 
     /* Window has no eglstream or current pending/complete eglstream is for
