@@ -63,10 +63,10 @@ Xwayland_built_sources +=					\
 	pointer-constraints-unstable-v1-protocol.c		\
 	tablet-unstable-v2-client-protocol.h			\
 	tablet-unstable-v2-protocol.c				\
-	eglstream-client-protocol.h				\
-	eglstream-protocol.c					\
-	eglstream-controller-client-protocol.h			\
-	eglstream-controller-protocol.c
+	wayland-eglstream-client-protocol.h			\
+	wayland-eglstream-protocol.c				\
+	wayland-eglstream-controller-client-protocol.h		\
+	wayland-eglstream-controller-protocol.c
 
 nodist_Xwayland_SOURCES = $(Xwayland_built_sources)
 CLEANFILES = $(Xwayland_built_sources)
@@ -93,10 +93,15 @@ tablet-unstable-v2-protocol.c: $(WAYLAND_PROTOCOLS_DATADIR)/unstable/tablet/tabl
 tablet-unstable-v2-client-protocol.h: $(WAYLAND_PROTOCOLS_DATADIR)/unstable/tablet/tablet-unstable-v2.xml
 	$(AM_V_GEN)$(WAYLAND_SCANNER) client-header < $< > $@
 
-eglstream-%-protocol.c : $(WAYLAND_EGLSTREAM_DATADIR)/wayland-eglstream-%.xml
-	$(AM_V_GEN)$(WAYLAND_SCANNER) code < $< > $@
-eglstream-%-client-protocol.h : $(WAYLAND_EGLSTREAM_DATADIR)/wayland-eglstream-%.xml
+wayland-eglstream-client-protocol.h : $(WAYLAND_EGLSTREAM_DATADIR)/wayland-eglstream.xml
 	$(AM_V_GEN)$(WAYLAND_SCANNER) client-header < $< > $@
+wayland-eglstream-controller-client-protocol.h : $(WAYLAND_EGLSTREAM_DATADIR)/wayland-eglstream-controller.xml
+	$(AM_V_GEN)$(WAYLAND_SCANNER) client-header < $< > $@
+
+wayland-eglstream-protocol.c : $(WAYLAND_EGLSTREAM_DATADIR)/wayland-eglstream.xml
+	$(AM_V_GEN)$(WAYLAND_SCANNER) code < $< > $@
+wayland-eglstream-controller-protocol.c : $(WAYLAND_EGLSTREAM_DATADIR)/wayland-eglstream-controller.xml
+	$(AM_V_GEN)$(WAYLAND_SCANNER) code < $< > $@
 
 %-protocol.c : %.xml
 	$(AM_V_GEN)$(WAYLAND_SCANNER) code < $< > $@
