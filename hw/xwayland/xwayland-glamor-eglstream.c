@@ -349,6 +349,77 @@ xwl_eglstream_set_window_pixmap(WindowPtr window, PixmapPtr pixmap)
          */
         pending->pixmap_was_changed = TRUE;
 
+        /* -------------------------------------------------------------------
+         * XXX XXX XXX mvicomoya XXX XXX XXX
+         *
+         * This is where the problem arises. To understand, you have to know a
+         * little bit about the relationship between the X client event loop
+         * and the wayland compositor's event loop in Xwayland. It goes like
+         * this:
+         *
+         * 1. Flush all wayland requests, handle all responses from the
+         *    compositor
+         * 2. Handle all pending responses from X clients
+         * 3. Go back to step 1
+         *
+         * This doesn't seem complicated, but there's a catch. It's entirely
+         * valid (this is the case with gnome-shell currently) for one of our
+         * X clients to be a client of the wayland compositor. This could lead
+         * to a scenario like this:
+         *
+         * - Xwayland creates window            - zzz...
+         * - Xwayland creates pixmap for window - Compositor receives request
+         *                                        to create new window
+         * - Xwayland creates stream for pixmap - Compositor asks Xwayland
+         *                                        for application icon
+         * - Xwayland waits for compositor to   - Compositor waits for
+         *   respond (wl_display_roundtrip())     Xwayland to respond
+         *                          *DEADLOCK*
+         *
+         * As a note, this exists because some parts of gnome-shell (or the
+         * wayland protocol, I forget which one) have not been updated to
+         * handle doing this using native wayland protocols, and thus must
+         * rely on Xwayland).
+         *
+         * So: we basically have to handle round trips by blocking X clients
+         * from using any "pending" wayland resources until we've managed to
+         * finish an iteration of the X client event, at which case it's
+         * possible that the client has responded to us and thus, notified us
+         * that the resources in question are now usable. This blocking is
+         * done in xwl_glamor_eglstream_allow_commits(), along with beginning
+         * the process of creating an eglstream for each pixmap.
+         *
+         * FINALLY: this brings us to the actual problem. When we run into a
+         * situation like the one in the comment above this⬆️ . This can lead
+         * to something like this:
+         *
+         * - Create eglstream
+         * - Send request to connect consumer
+         * - Create another eglstream
+         * - Send wl_buffer_destroy() for wl_buffer from first eglstream
+         * - Compositor crashes, maybe it was still using the stream?
+         *
+         * Currently; the refcount you see below is working around this issue.
+         * We make the assumption that the wl_buffer remains "owned" by the
+         * compositor up until the point where we've successfully connected a
+         * consumer to the new pixmap for the first eglstream (e.g. when we've
+         * received a callback for the wl_display_sync() we used in place of a
+         * roundtrip). If the pixmap is deleted before this deref happens, you
+         * start to occassionally cause nvidia's egl library to throw nonsense
+         * errors about a stream being in the wrong state.
+         *
+         * So, you should (I don't have a machine to test this with in front
+         * of me at the moment unfortunately) be able to reproduce this
+         * problem by:
+         * - Removing the reference below
+         * - Removing the call to xwl_eglstream_unref_pixmap_stream() in
+         *   xwl_eglstream_consumer_ready_callback()
+         * - Doing the other stuff I mentioned to you in IRC
+         *
+         * Lemme know if you need any help or further explanation, Xwayland is
+         * a confusing beast.
+         */
+
         /* FIXME: we should have a release event for this
          * The stream might still be getting setup in the compositor, so wait
          * until it's callback gets invoked to destroy it's wl_buffer */
