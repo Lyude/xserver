@@ -95,6 +95,7 @@ struct xwl_screen {
     int wait_flush;
 
     uint32_t formats;
+    void *egl_device;
     void *egl_display, *egl_context;
 
     /* the current backend for creating pixmaps on wayland */
@@ -355,6 +356,12 @@ void xwl_glamor_init_wl_registry(struct xwl_screen *xwl_screen,
                                  uint32_t version);
 
 void xwl_screen_release_tablet_manager(struct xwl_screen *xwl_screen);
+
+Bool xwl_glamor_egl_supports_device_probing(void);
+void **xwl_glamor_egl_get_devices(int *num_devices);
+Bool xwl_glamor_egl_device_has_egl_extensions(void *device,
+                                              const char **ext_list,
+                                              size_t size);
 
 #ifdef XV
 /* glamor Xv Adaptor */

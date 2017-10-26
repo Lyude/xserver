@@ -867,6 +867,9 @@ xwl_screen_init(ScreenPtr pScreen, int argc, char **argv)
     xwl_screen->glamor = 1;
 #endif
 
+    /* TODO: Add some code to allow manually setting egl_device via cmdline
+     * args
+     */
     for (i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-rootless") == 0) {
             xwl_screen->rootless = 1;
